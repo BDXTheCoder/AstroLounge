@@ -36,14 +36,21 @@ HTML_PAGE = """<!DOCTYPE html>
         
         /* Left Pane: Game Arena */
         .game-arena { width: 0px; background: #2b2d31; border-right: 1px solid #1f2023; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 0.3s ease; overflow: hidden; padding: 0; }
-        .game-arena.active { width: 450px; padding: 20px; }
+        .game-arena.active { width: 480px; padding: 20px; }
         .game-title { color: #fff; margin-bottom: 15px; font-size: 18px; font-weight: bold; }
         
         /* Tic Tac Toe Grid */
-        .ttt-board { display: grid; grid-template-columns: repeat(3, 100px); grid-template-rows: repeat(3, 100px); gap: 8px; background: #1e1f22; padding: 8px; border-radius: 8px; }
-        .ttt-cell { background: #313338; border: none; border-radius: 6px; font-size: 40px; font-weight: bold; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+        .ttt-board { display: none; grid-template-columns: repeat(3, 90px); grid-template-rows: repeat(3, 90px); gap: 8px; background: #1e1f22; padding: 8px; border-radius: 8px; }
+        .ttt-cell { background: #313338; border: none; border-radius: 6px; font-size: 36px; font-weight: bold; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
         .ttt-cell:hover { background: #383a40; }
-        .ttt-status { margin-top: 15px; font-size: 14px; color: #b5bac1; text-align: center; }
+
+        /* Connect Four Grid */
+        .c4-board { display: none; grid-template-columns: repeat(7, 50px); grid-template-rows: repeat(6, 50px); gap: 6px; background: #1e1f22; padding: 8px; border-radius: 8px; }
+        .c4-cell { background: #313338; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+        .c4-cell:hover { background: #383a40; }
+        .c4-piece { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; color: white; }
+
+        .game-status { margin-top: 15px; font-size: 14px; color: #b5bac1; text-align: center; }
 
         .main-chat { flex: 1; display: flex; flex-direction: column; min-width: 350px; }
         .chat-header { padding: 15px 20px; background: #313338; border-bottom: 1px solid #1f2023; font-weight: bold; color: #fff; display: flex; justify-content: space-between; align-items: center; }
@@ -107,7 +114,9 @@ HTML_PAGE = """<!DOCTYPE html>
     <div id="chat-screen">
         <!-- Left Pane: Game Arena -->
         <div class="game-arena" id="game-arena">
-            <div class="game-title" id="game-arena-title">Tic-Tac-Toe</div>
+            <div class="game-title" id="game-arena-title">Arcade Game</div>
+            
+            <!-- Tic-Tac-Toe Board -->
             <div class="ttt-board" id="ttt-board">
                 <button class="ttt-cell" onclick="makeMove(0)"></button>
                 <button class="ttt-cell" onclick="makeMove(1)"></button>
@@ -119,7 +128,11 @@ HTML_PAGE = """<!DOCTYPE html>
                 <button class="ttt-cell" onclick="makeMove(7)"></button>
                 <button class="ttt-cell" onclick="makeMove(8)"></button>
             </div>
-            <div class="ttt-status" id="ttt-status">Game starting...</div>
+
+            <!-- Connect Four Board -->
+            <div class="c4-board" id="c4-board"></div>
+
+            <div class="game-status" id="game-status">Game starting...</div>
             <button class="game-btn" onclick="resetGame()" style="margin-top: 15px; width: auto; padding: 6px 12px;">Reset Board</button>
         </div>
 
@@ -146,6 +159,7 @@ HTML_PAGE = """<!DOCTYPE html>
                 <div id="op-controls" style="display:none;">
                     <select id="game-select" class="game-select">
                         <option value="tictactoe">Tic-Tac-Toe</option>
+                        <option value="connectfour">Connect Four</option>
                     </select>
                     <button class="game-btn" onclick="launchGame()">Launch Game</button>
                 </div>
@@ -163,11 +177,23 @@ HTML_PAGE = """<!DOCTYPE html>
         let isTyping = false;
         let typingUsers = new Set();
         
-        let tttBoard = ["", "", "", "", "", "", "", "", ""];
-        let tttTurn = "X";
-        let tttActive = false;
-        let tttWinner = null;
-        let tttPlayers = { X: null, O: null };
+        let gameState = {
+            type: "tictactoe",
+            active: false,
+            board: [],
+            turn: "X",
+            winner: null,
+            players: { X: null, O: null }
+        };
+
+        // Initialize Connect Four board DOM elements
+        const c4BoardEl = document.getElementById("c4-board");
+        for (let i = 0; i < 42; i++) {
+            const cell = document.createElement("button");
+            cell.className = "c4-cell";
+            cell.onclick = () => makeMove(i);
+            c4BoardEl.appendChild(cell);
+        }
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -248,18 +274,22 @@ HTML_PAGE = """<!DOCTYPE html>
                 }
 
                 if (data.type === "game_state") {
-                    tttBoard = data.board;
-                    tttTurn = data.turn;
-                    tttActive = data.active;
-                    tttWinner = data.winner;
-                    tttPlayers = data.players;
-                    
-                    if (tttActive) {
+                    gameState = data;
+                    if (gameState.active) {
                         document.getElementById("game-arena").classList.add("active");
+                        if (gameState.type === "tictactoe") {
+                            document.getElementById("game-arena-title").innerText = "Tic-Tac-Toe";
+                            document.getElementById("ttt-board").style.display = "grid";
+                            document.getElementById("c4-board").style.display = "none";
+                        } else {
+                            document.getElementById("game-arena-title").innerText = "Connect Four";
+                            document.getElementById("ttt-board").style.display = "none";
+                            document.getElementById("c4-board").style.display = "grid";
+                        }
                     } else {
                         document.getElementById("game-arena").classList.remove("active");
                     }
-                    updateTTTUI();
+                    updateGameUI();
                 }
 
                 if (data.type === "typing") {
@@ -341,41 +371,62 @@ HTML_PAGE = """<!DOCTYPE html>
         }
 
         function makeMove(index) {
-            if (!tttActive || tttWinner) return;
-            if (tttBoard[index] !== "") return;
+            if (!gameState.active || gameState.winner) return;
+            
+            // For Connect Four, clicking any cell in a column passes the column index (0-6)
+            let moveIndex = index;
+            if (gameState.type === "connectfour") {
+                moveIndex = index % 7;
+            }
             
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ action: "ttt_move", index: index }));
+                ws.send(JSON.stringify({ action: "game_move", index: moveIndex }));
             }
         }
 
         function resetGame() {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ action: "ttt_reset" }));
+                ws.send(JSON.stringify({ action: "game_reset" }));
             }
         }
 
-        function updateTTTUI() {
-            const cells = document.getElementsByClassName("ttt-cell");
-            for (let i = 0; i < cells.length; i++) {
-                cells[i].innerText = tttBoard[i];
-                cells[i].style.color = tttBoard[i] === "X" ? "#5865f2" : "#ed4245";
+        function updateGameUI() {
+            if (gameState.type === "tictactoe") {
+                const cells = document.getElementsByClassName("ttt-cell");
+                for (let i = 0; i < cells.length; i++) {
+                    cells[i].innerText = gameState.board[i] || "";
+                    cells[i].style.color = gameState.board[i] === "X" ? "#5865f2" : "#ed4245";
+                }
+            } else if (gameState.type === "connectfour") {
+                const cells = document.getElementsByClassName("c4-cell");
+                for (let i = 0; i < cells.length; i++) {
+                    cells[i].innerHTML = "";
+                    const val = gameState.board[i];
+                    if (val) {
+                        const piece = document.createElement("div");
+                        piece.className = "c4-piece";
+                        piece.style.backgroundColor = val === "X" ? "#5865f2" : "#ed4245";
+                        piece.innerText = val;
+                        cells[i].appendChild(piece);
+                    }
+                }
             }
-            const status = document.getElementById("ttt-status");
+
+            const status = document.getElementById("game-status");
             let roleText = "";
-            if (tttPlayers.X === username) roleText = " (You are X)";
-            else if (tttPlayers.O === username) roleText = " (You are O)";
+            if (gameState.players.X === username) roleText = " (You are X)";
+            else if (gameState.players.O === username) roleText = " (You are O)";
             else roleText = " (Spectating)";
 
-            if (tttWinner) {
-                if (tttWinner === "Tie") {
+            if (gameState.winner) {
+                if (gameState.winner === "Tie") {
                     status.innerText = `It's a Tie! 🤝`;
                 } else {
-                    const winnerName = tttPlayers[tttWinner];
-                    status.innerText = `Winner: ${winnerName} (${tttWinner})! 🎉`;
+                    const winnerName = gameState.players[gameState.winner];
+                    status.innerText = `Winner: ${winnerName} (${gameState.winner})! 🎉`;
                 }
             } else {
-                status.innerText = `Turn: ${tttTurn} (${tttPlayers[tttTurn] || 'Waiting...'})${roleText}`;
+                status.innerText = `Turn: ${gameState.turn} (${gameState.players[gameState.turn] || 'Waiting...'})${roleText}`;
             }
         }
 
@@ -439,15 +490,42 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>
 """
 
-def check_winner(board):
-    wins = [
-        (0,1,2), (3,4,5), (6,7,8), # rows
-        (0,3,6), (1,4,7), (2,5,8), # cols
-        (0,4,8), (2,4,6)  # diagonals
-    ]
-    for a, b, c in wins:
-        if board[a] and board[a] == board[b] == board[c]:
-            return board[a] # Returns 'X' or 'O'
+def check_winner(board, game_type):
+    if game_type == "tictactoe":
+        wins = [
+            (0,1,2), (3,4,5), (6,7,8),
+            (0,3,6), (1,4,7), (2,5,8),
+            (0,4,8), (2,4,6)
+        ]
+        for a, b, c in wins:
+            if board[a] and board[a] == board[b] == board[c]:
+                return board[a]
+    elif game_type == "connectfour":
+        # Check horizontal
+        for r in range(6):
+            for c in range(4):
+                idx = r * 7 + c
+                if board[idx] and board[idx] == board[idx+1] == board[idx+2] == board[idx+3]:
+                    return board[idx]
+        # Check vertical
+        for r in range(3):
+            for c in range(7):
+                idx = r * 7 + c
+                if board[idx] and board[idx] == board[idx+7] == board[idx+14] == board[idx+21]:
+                    return board[idx]
+        # Check diagonal positive slope
+        for r in range(3):
+            for c in range(4):
+                idx = r * 7 + c
+                if board[idx] and board[idx] == board[idx+8] == board[idx+16] == board[idx+24]:
+                    return board[idx]
+        # Check diagonal negative slope
+        for r in range(3, 6):
+            for c in range(4):
+                idx = r * 7 + c
+                if board[idx] and board[idx] == board[idx-6] == board[idx-12] == board[idx-18]:
+                    return board[idx]
+
     if "" not in board:
         return "Tie"
     return None
@@ -479,8 +557,9 @@ async def chat_handler(websocket, path):
                         "clients": {}, 
                         "op": websocket, 
                         "game": {
+                            "type": "tictactoe",
                             "active": False,
-                            "board": ["", "", "", "", "", "", "", "", ""],
+                            "board": [""] * 9,
                             "turn": "X",
                             "winner": None,
                             "players": {"X": None, "O": None}
@@ -497,6 +576,7 @@ async def chat_handler(websocket, path):
                 g = rooms[room]["game"]
                 await websocket.send(json.dumps({
                     "type": "game_state", 
+                    "game_type": g["type"],
                     "board": g["board"], 
                     "turn": g["turn"], 
                     "winner": g["winner"],
@@ -526,18 +606,24 @@ async def chat_handler(websocket, path):
             elif action == "launch_game":
                 if current_room and current_room in rooms:
                     if rooms[current_room]["op"] == websocket:
-                        g = rooms[current_room]["game"]
-                        g["active"] = True
-                        g["board"] = ["", "", "", "", "", "", "", "", ""]
-                        g["turn"] = "X"
-                        g["winner"] = None
-                        g["players"] = {"X": None, "O": None}
+                        g_type = data.get("game", "tictactoe")
+                        board_size = 42 if g_type == "connectfour" else 9
+                        
+                        rooms[current_room]["game"] = {
+                            "type": g_type,
+                            "active": True,
+                            "board": [""] * board_size,
+                            "turn": "X",
+                            "winner": None,
+                            "players": {"X": None, "O": None}
+                        }
                         
                         await broadcast_game_state(current_room)
                         launch_payload = json.dumps({"type": "game_launch"})
                         await asyncio.gather(*[ws.send(launch_payload) for ws in rooms[current_room]["clients"]])
                         
-                        join_msg = '🎮 Room Operator started Tic-Tac-Toe!<br><button class="join-game-btn" onclick="joinGameAction()">Join Game</button>'
+                        game_name = "Connect Four" if g_type == "connectfour" else "Tic-Tac-Toe"
+                        join_msg = f'🎮 Room Operator started {game_name}!<br><button class="join-game-btn" onclick="joinGameAction()">Join Game</button>'
                         await broadcast_message(current_room, "System", join_msg)
 
             elif action == "close_game":
@@ -551,7 +637,7 @@ async def chat_handler(websocket, path):
                 if current_room and current_room in rooms:
                     g = rooms[current_room]["game"]
                     if g["active"]:
-                        if not g["players"]["X"]:
+                        if not g["players"]["X"] and g["players"]["O"] != current_username:
                             g["players"]["X"] = current_username
                             await broadcast_message(current_room, "System", f"👤 {current_username} joined as Player X.")
                         elif not g["players"]["O"] and g["players"]["X"] != current_username:
@@ -559,33 +645,51 @@ async def chat_handler(websocket, path):
                             await broadcast_message(current_room, "System", f"👤 {current_username} joined as Player O.")
                         await broadcast_game_state(current_room)
 
-            elif action == "ttt_move":
+            elif action == "game_move":
                 if current_room and current_room in rooms:
                     g = rooms[current_room]["game"]
                     idx = data.get("index")
                     
                     current_player_name = g["players"].get(g["turn"])
-                    if g["active"] and not g["winner"] and current_player_name == current_username and 0 <= idx < 9 and g["board"][idx] == "":
-                        g["board"][idx] = g["turn"]
+                    if g["active"] and not g["winner"] and current_player_name == current_username:
+                        valid_move = False
                         
-                        winner = check_winner(g["board"])
-                        if winner:
-                            g["winner"] = winner
-                            if winner == "Tie":
-                                await broadcast_message(current_room, "System", "🤝 Tic-Tac-Toe ended in a Tie!")
+                        if g["type"] == "tictactoe":
+                            if 0 <= idx < 9 and g["board"][idx] == "":
+                                g["board"][idx] = g["turn"]
+                                valid_move = True
+                        elif g["type"] == "connectfour":
+                            col = idx
+                            if 0 <= col < 7:
+                                # Find lowest empty row in column
+                                for row in range(5, -1, -1):
+                                    cell_idx = row * 7 + col
+                                    if g["board"][cell_idx] == "":
+                                        g["board"][cell_idx] = g["turn"]
+                                        valid_move = True
+                                        break
+                        
+                        if valid_move:
+                            winner = check_winner(g["board"], g["type"])
+                            if winner:
+                                g["winner"] = winner
+                                game_name = "Connect Four" if g["type"] == "connectfour" else "Tic-Tac-Toe"
+                                if winner == "Tie":
+                                    await broadcast_message(current_room, "System", f"🤝 {game_name} ended in a Tie!")
+                                else:
+                                    winner_name = g["players"][winner]
+                                    await broadcast_message(current_room, "System", f"🎉 {winner_name} ({winner}) won {game_name}!")
                             else:
-                                winner_name = g["players"][winner]
-                                await broadcast_message(current_room, "System", f"🎉 {winner_name} ({winner}) won Tic-Tac-Toe!")
-                        else:
-                            g["turn"] = "O" if g["turn"] == "X" else "X"
-                            
-                        await broadcast_game_state(current_room)
+                                g["turn"] = "O" if g["turn"] == "X" else "X"
+                                
+                            await broadcast_game_state(current_room)
 
-            elif action == "ttt_reset":
+            elif action == "game_reset":
                 if current_room and current_room in rooms:
                     if rooms[current_room]["op"] == websocket:
                         g = rooms[current_room]["game"]
-                        g["board"] = ["", "", "", "", "", "", "", "", ""]
+                        board_size = 42 if g["type"] == "connectfour" else 9
+                        g["board"] = [""] * board_size
                         g["turn"] = "X"
                         g["winner"] = None
                         await broadcast_game_state(current_room)
@@ -639,6 +743,7 @@ async def broadcast_game_state(room):
         g = rooms[room]["game"]
         payload = json.dumps({
             "type": "game_state",
+            "game_type": g["type"],
             "board": g["board"],
             "turn": g["turn"],
             "winner": g["winner"],
