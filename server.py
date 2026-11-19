@@ -154,7 +154,7 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>
 """
 
-async def chat_handler(websocket):
+async def chat_handler(websocket, path):
     current_room = None
     current_username = None
     try:
@@ -212,11 +212,13 @@ async def broadcast_user_list(room):
         await asyncio.gather(*[ws.send(payload) for ws in rooms[room]["clients"]])
 
 # Intercept regular HTTP requests and return our HTML chat page
-async def process_request(connection, request):
-    return connection.respond(
+async def process_request(path, request_headers):
+    if "Upgrade" in request_headers.get("Connection", ""):
+        return None  # Let WebSocket connections proceed to chat_handler
+    return (
         HTTPStatus.OK,
-        HTML_PAGE.encode("utf-8"),
-        headers={"Content-Type": "text/html; charset=utf-8"}
+        [("Content-Type", "text/html; charset=utf-8")],
+        HTML_PAGE.encode("utf-8")
     )
 
 async def main():
