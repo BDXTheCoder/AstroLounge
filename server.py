@@ -45,10 +45,10 @@ HTML_PAGE = """<!DOCTYPE html>
         .ttt-cell:hover { background: #383a40; }
 
         /* Connect Four Grid */
-        .c4-board { display: none; grid-template-columns: repeat(7, 50px); grid-template-rows: repeat(6, 50px); gap: 6px; background: #1e1f22; padding: 8px; border-radius: 8px; }
-        .c4-cell { background: #313338; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+        .c4-board { display: none; grid-template-columns: repeat(7, 45px); grid-template-rows: repeat(6, 45px); gap: 6px; background: #1e1f22; padding: 8px; border-radius: 8px; }
+        .c4-cell { background: #313338; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; position: relative; }
         .c4-cell:hover { background: #383a40; }
-        .c4-piece { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; color: white; }
+        .c4-piece { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; color: white; }
 
         .game-status { margin-top: 15px; font-size: 14px; color: #b5bac1; text-align: center; }
 
@@ -178,7 +178,7 @@ HTML_PAGE = """<!DOCTYPE html>
         let typingUsers = new Set();
         
         let gameState = {
-            type: "tictactoe",
+            game_type: "tictactoe",
             active: false,
             board: [],
             turn: "X",
@@ -186,7 +186,7 @@ HTML_PAGE = """<!DOCTYPE html>
             players: { X: null, O: null }
         };
 
-        // Initialize Connect Four board DOM elements
+        // Initialize Connect Four board DOM elements (42 cells: 7 cols x 6 rows)
         const c4BoardEl = document.getElementById("c4-board");
         for (let i = 0; i < 42; i++) {
             const cell = document.createElement("button");
@@ -277,7 +277,7 @@ HTML_PAGE = """<!DOCTYPE html>
                     gameState = data;
                     if (gameState.active) {
                         document.getElementById("game-arena").classList.add("active");
-                        if (gameState.type === "tictactoe") {
+                        if (gameState.game_type === "tictactoe") {
                             document.getElementById("game-arena-title").innerText = "Tic-Tac-Toe";
                             document.getElementById("ttt-board").style.display = "grid";
                             document.getElementById("c4-board").style.display = "none";
@@ -373,9 +373,8 @@ HTML_PAGE = """<!DOCTYPE html>
         function makeMove(index) {
             if (!gameState.active || gameState.winner) return;
             
-            // For Connect Four, clicking any cell in a column passes the column index (0-6)
             let moveIndex = index;
-            if (gameState.type === "connectfour") {
+            if (gameState.game_type === "connectfour") {
                 moveIndex = index % 7;
             }
             
@@ -391,13 +390,13 @@ HTML_PAGE = """<!DOCTYPE html>
         }
 
         function updateGameUI() {
-            if (gameState.type === "tictactoe") {
+            if (gameState.game_type === "tictactoe") {
                 const cells = document.getElementsByClassName("ttt-cell");
                 for (let i = 0; i < cells.length; i++) {
                     cells[i].innerText = gameState.board[i] || "";
                     cells[i].style.color = gameState.board[i] === "X" ? "#5865f2" : "#ed4245";
                 }
-            } else if (gameState.type === "connectfour") {
+            } else if (gameState.game_type === "connectfour") {
                 const cells = document.getElementsByClassName("c4-cell");
                 for (let i = 0; i < cells.length; i++) {
                     cells[i].innerHTML = "";
@@ -557,7 +556,7 @@ async def chat_handler(websocket, path):
                         "clients": {}, 
                         "op": websocket, 
                         "game": {
-                            "type": "tictactoe",
+                            "game_type": "tictactoe",
                             "active": False,
                             "board": [""] * 9,
                             "turn": "X",
@@ -576,7 +575,7 @@ async def chat_handler(websocket, path):
                 g = rooms[room]["game"]
                 await websocket.send(json.dumps({
                     "type": "game_state", 
-                    "game_type": g["type"],
+                    "game_type": g["game_type"],
                     "board": g["board"], 
                     "turn": g["turn"], 
                     "winner": g["winner"],
@@ -610,7 +609,7 @@ async def chat_handler(websocket, path):
                         board_size = 42 if g_type == "connectfour" else 9
                         
                         rooms[current_room]["game"] = {
-                            "type": g_type,
+                            "game_type": g_type,
                             "active": True,
                             "board": [""] * board_size,
                             "turn": "X",
@@ -654,14 +653,13 @@ async def chat_handler(websocket, path):
                     if g["active"] and not g["winner"] and current_player_name == current_username:
                         valid_move = False
                         
-                        if g["type"] == "tictactoe":
+                        if g["game_type"] == "tictactoe":
                             if 0 <= idx < 9 and g["board"][idx] == "":
                                 g["board"][idx] = g["turn"]
                                 valid_move = True
-                        elif g["type"] == "connectfour":
+                        elif g["game_type"] == "connectfour":
                             col = idx
                             if 0 <= col < 7:
-                                # Find lowest empty row in column
                                 for row in range(5, -1, -1):
                                     cell_idx = row * 7 + col
                                     if g["board"][cell_idx] == "":
@@ -670,10 +668,10 @@ async def chat_handler(websocket, path):
                                         break
                         
                         if valid_move:
-                            winner = check_winner(g["board"], g["type"])
+                            winner = check_winner(g["board"], g["game_type"])
                             if winner:
                                 g["winner"] = winner
-                                game_name = "Connect Four" if g["type"] == "connectfour" else "Tic-Tac-Toe"
+                                game_name = "Connect Four" if g["game_type"] == "connectfour" else "Tic-Tac-Toe"
                                 if winner == "Tie":
                                     await broadcast_message(current_room, "System", f"🤝 {game_name} ended in a Tie!")
                                 else:
@@ -688,7 +686,7 @@ async def chat_handler(websocket, path):
                 if current_room and current_room in rooms:
                     if rooms[current_room]["op"] == websocket:
                         g = rooms[current_room]["game"]
-                        board_size = 42 if g["type"] == "connectfour" else 9
+                        board_size = 42 if g["game_type"] == "connectfour" else 9
                         g["board"] = [""] * board_size
                         g["turn"] = "X"
                         g["winner"] = None
@@ -743,7 +741,7 @@ async def broadcast_game_state(room):
         g = rooms[room]["game"]
         payload = json.dumps({
             "type": "game_state",
-            "game_type": g["type"],
+            "game_type": g["game_type"],
             "board": g["board"],
             "turn": g["turn"],
             "winner": g["winner"],
