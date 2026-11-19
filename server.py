@@ -4,7 +4,7 @@ import os
 from http import HTTPStatus
 import websockets
 
-# Store rooms: { "room_code": { "password": "...", "clients": { ws: username }, "game": None } }
+# Store rooms: { "room_code": { "password": "...", "clients": { ws: username }, "op": ws, "game": {...} } }
 rooms = {}
 all_connections = set()
 
@@ -34,7 +34,7 @@ HTML_PAGE = """<!DOCTYPE html>
         
         #chat-screen { display: none; width: 95vw; height: 92vh; max-width: 1300px; max-height: 800px; flex-direction: row; border-radius: 12px; overflow: hidden; background: #313338; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
         
-        /* Left Pane: Game Arena (hidden by default) */
+        /* Left Pane: Game Arena */
         .game-arena { width: 0px; background: #2b2d31; border-right: 1px solid #1f2023; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 0.3s ease; overflow: hidden; padding: 0; }
         .game-arena.active { width: 450px; padding: 20px; }
         .game-title { color: #fff; margin-bottom: 15px; font-size: 18px; font-weight: bold; }
@@ -52,6 +52,10 @@ HTML_PAGE = """<!DOCTYPE html>
         .message.me { background: #5865f2; align-self: flex-end; }
         .message.system { background: #232428; color: #949ba4; align-self: center; font-size: 13px; text-align: center; max-width: 90%; }
         
+        /* Chat Join Game Button */
+        .join-game-btn { background: #248046; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-weight: bold; margin-top: 8px; cursor: pointer; display: inline-block; }
+        .join-game-btn:hover { background: #1a6335; }
+        
         .typing-indicator { height: 22px; padding: 0 20px; font-size: 12px; font-style: italic; color: #b5bac1; display: flex; align-items: center; }
         
         .message-input-area { padding: 10px 20px 15px 20px; display: flex; gap: 10px; background: #313338; }
@@ -67,6 +71,8 @@ HTML_PAGE = """<!DOCTYPE html>
         .game-select { width: 100%; padding: 8px; background: #383A40; border: none; border-radius: 6px; color: #fff; font-size: 13px; margin-top: 8px; }
         .game-btn { background: #248046; margin-top: 10px; padding: 8px; font-size: 13px; }
         .game-btn:hover { background: #1a6335; }
+        .close-game-btn { background: #da373c; margin-top: 8px; padding: 8px; font-size: 13px; display: none; }
+        .close-game-btn:hover { background: #a12828; }
 
         .leave-btn { background: #da373c; padding: 6px 12px; width: auto; margin-top: 0; }
         .leave-btn:hover { background: #a12828; }
@@ -144,6 +150,7 @@ HTML_PAGE = """<!DOCTYPE html>
                     </select>
                     <button class="game-btn" onclick="launchGame()">Launch Game</button>
                 </div>
+                <button class="close-game-btn" id="close-game-btn" onclick="closeGame()">Close Game</button>
                 <div id="player-waiting" style="font-size: 12px; color: #949ba4; margin-top: 5px;">Waiting for Room Op to launch a game.</div>
             </div>
         </div>
@@ -161,6 +168,7 @@ HTML_PAGE = """<!DOCTYPE html>
         let tttBoard = ["", "", "", "", "", "", "", "", ""];
         let tttTurn = "X";
         let tttActive = false;
+        let tttPlayers = { X: null, O: null };
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -203,7 +211,7 @@ HTML_PAGE = """<!DOCTYPE html>
                     
                     if (data.sender === "System") {
                         div.className = "message system";
-                        div.innerText = data.text;
+                        div.innerHTML = data.text;
                     } else {
                         div.className = "message" + (data.sender === username ? " me" : "");
                         div.innerHTML = `<strong>${data.sender}:</strong> ${data.text}`;
@@ -235,16 +243,22 @@ HTML_PAGE = """<!DOCTYPE html>
                 }
 
                 if (data.type === "game_launch") {
-                    document.getElementById("game-arena").classList.add("active");
-                    tttActive = true;
-                    updateTTTUI();
+                    if (isOp) {
+                        document.getElementById("close-game-btn").style.display = "block";
+                    }
                 }
 
                 if (data.type === "game_state") {
                     tttBoard = data.board;
                     tttTurn = data.turn;
                     tttActive = data.active;
-                    document.getElementById("game-arena").classList.add("active");
+                    tttPlayers = data.players;
+                    
+                    if (tttActive) {
+                        document.getElementById("game-arena").classList.add("active");
+                    } else {
+                        document.getElementById("game-arena").classList.remove("active");
+                    }
                     updateTTTUI();
                 }
 
@@ -314,6 +328,18 @@ HTML_PAGE = """<!DOCTYPE html>
             }
         }
 
+        function closeGame() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "close_game" }));
+            }
+        }
+
+        function joinGameAction() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "join_game" }));
+            }
+        }
+
         function makeMove(index) {
             if (!tttActive) return;
             if (tttBoard[index] !== "") return;
@@ -336,7 +362,12 @@ HTML_PAGE = """<!DOCTYPE html>
                 cells[i].style.color = tttBoard[i] === "X" ? "#5865f2" : "#ed4245";
             }
             const status = document.getElementById("ttt-status");
-            status.innerText = `Current Turn: Player ${tttTurn}`;
+            let roleText = "";
+            if (tttPlayers.X === username) roleText = " (You are Player X)";
+            else if (tttPlayers.O === username) roleText = " (You are Player O)";
+            else roleText = " (Spectating)";
+
+            status.innerText = `Turn: ${tttTurn}${roleText}`;
         }
 
         function handleTyping() {
@@ -428,7 +459,8 @@ async def chat_handler(websocket, path):
                         "game": {
                             "active": False,
                             "board": ["", "", "", "", "", "", "", "", ""],
-                            "turn": "X"
+                            "turn": "X",
+                            "players": {"X": None, "O": None}
                         }
                     }
                 
@@ -439,10 +471,14 @@ async def chat_handler(websocket, path):
                 is_op = (rooms[room]["op"] == websocket)
                 await websocket.send(json.dumps({"status": "joined", "room": room, "is_op": is_op}))
                 
-                # If game is already active in room, sync new user
                 g = rooms[room]["game"]
-                if g["active"]:
-                    await websocket.send(json.dumps({"type": "game_state", "board": g["board"], "turn": g["turn"], "active": True}))
+                await websocket.send(json.dumps({
+                    "type": "game_state", 
+                    "board": g["board"], 
+                    "turn": g["turn"], 
+                    "active": g["active"],
+                    "players": g["players"]
+                }))
 
                 await broadcast_user_list(room)
                 await broadcast_room_list()
@@ -466,21 +502,50 @@ async def chat_handler(websocket, path):
             elif action == "launch_game":
                 if current_room and current_room in rooms:
                     if rooms[current_room]["op"] == websocket:
-                        rooms[current_room]["game"]["active"] = True
-                        payload = json.dumps({"type": "game_launch", "game": data.get("game")})
-                        await asyncio.gather(*[ws.send(payload) for ws in rooms[current_room]["clients"]])
-                        await broadcast_message(current_room, "System", "🎮 Room Operator launched Tic-Tac-Toe!")
+                        g = rooms[current_room]["game"]
+                        g["active"] = True
+                        g["board"] = ["", "", "", "", "", "", "", "", ""]
+                        g["turn"] = "X"
+                        g["players"] = {"X": None, "O": None}
+                        
+                        # Broadcast game launch state and chat message with Join button
+                        await broadcast_game_state(current_room)
+                        launch_payload = json.dumps({"type": "game_launch"})
+                        await asyncio.gather(*[ws.send(launch_payload) for ws in rooms[current_room]["clients"]])
+                        
+                        join_msg = '🎮 Room Operator started Tic-Tac-Toe!<br><button class="join-game-btn" onclick="joinGameAction()">Join Game</button>'
+                        await broadcast_message(current_room, "System", join_msg)
+
+            elif action == "close_game":
+                if current_room and current_room in rooms:
+                    if rooms[current_room]["op"] == websocket:
+                        rooms[current_room]["game"]["active"] = False
+                        await broadcast_game_state(current_room)
+                        await broadcast_message(current_room, "System", "🎮 Room Operator closed the game.")
+
+            elif action == "join_game":
+                if current_room and current_room in rooms:
+                    g = rooms[current_room]["game"]
+                    if g["active"]:
+                        if not g["players"]["X"]:
+                            g["players"]["X"] = current_username
+                            await broadcast_message(current_room, "System", f"👤 {current_username} joined as Player X.")
+                        elif not g["players"]["O"] and g["players"]["X"] != current_username:
+                            g["players"]["O"] = current_username
+                            await broadcast_message(current_room, "System", f"👤 {current_username} joined as Player O.")
+                        await broadcast_game_state(current_room)
 
             elif action == "ttt_move":
                 if current_room and current_room in rooms:
                     g = rooms[current_room]["game"]
                     idx = data.get("index")
-                    if g["active"] and 0 <= idx < 9 and g["board"][idx] == "":
+                    
+                    # Verify current player turn matches the client
+                    current_player_name = g["players"].get(g["turn"])
+                    if g["active"] and current_player_name == current_username and 0 <= idx < 9 and g["board"][idx] == "":
                         g["board"][idx] = g["turn"]
                         g["turn"] = "O" if g["turn"] == "X" else "X"
-                        
-                        payload = json.dumps({"type": "game_state", "board": g["board"], "turn": g["turn"], "active": True})
-                        await asyncio.gather(*[ws.send(payload) for ws in rooms[current_room]["clients"]])
+                        await broadcast_game_state(current_room)
 
             elif action == "ttt_reset":
                 if current_room and current_room in rooms:
@@ -488,8 +553,7 @@ async def chat_handler(websocket, path):
                         g = rooms[current_room]["game"]
                         g["board"] = ["", "", "", "", "", "", "", "", ""]
                         g["turn"] = "X"
-                        payload = json.dumps({"type": "game_state", "board": g["board"], "turn": g["turn"], "active": True})
-                        await asyncio.gather(*[ws.send(payload) for ws in rooms[current_room]["clients"]])
+                        await broadcast_game_state(current_room)
 
             elif action == "kick":
                 if current_room and current_room in rooms:
@@ -515,7 +579,13 @@ async def chat_handler(websocket, path):
                     if rooms[current_room]["op"] == websocket:
                         rooms[current_room]["op"] = list(rooms[current_room]["clients"].keys())[0]
                     
+                    # Clear player slots if they leave
+                    g = rooms[current_room]["game"]
+                    if g["players"]["X"] == current_username: g["players"]["X"] = None
+                    if g["players"]["O"] == current_username: g["players"]["O"] = None
+                    
                     await broadcast_user_list(current_room)
+                    await broadcast_game_state(current_room)
                     clear_typing = json.dumps({"type": "typing", "sender": current_username, "is_typing": False})
                     await asyncio.gather(*[ws.send(clear_typing) for ws in rooms[current_room]["clients"]])
                     await broadcast_message(current_room, "System", f"{current_username} left the room.")
@@ -529,6 +599,18 @@ async def broadcast_message(room, sender, text, exclude=None):
         targets = [ws for ws in rooms[room]["clients"] if ws != exclude]
         if targets:
             await asyncio.gather(*[ws.send(payload) for ws in targets])
+
+async def broadcast_game_state(room):
+    if room in rooms:
+        g = rooms[room]["game"]
+        payload = json.dumps({
+            "type": "game_state",
+            "board": g["board"],
+            "turn": g["turn"],
+            "active": g["active"],
+            "players": g["players"]
+        })
+        await asyncio.gather(*[ws.send(payload) for ws in rooms[room]["clients"]])
 
 async def broadcast_user_list(room):
     if room in rooms:
