@@ -16,29 +16,29 @@ HTML_PAGE = """<!DOCTYPE html>
     <title>Nexus Chat & Arcade</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
-        body { background-color: #1e1f22; color: #dbdee1; display: flex; height: 100vh; justify-content: center; align-items: center; }
+        body { background-color: #1e1f22; color: #dbdee1; display: flex; min-height: 100vh; justify-content: center; align-items: center; padding: 10px; }
         
-        .login-wrapper { display: flex; gap: 20px; align-items: stretch; }
-        .card { background: #2b2d31; padding: 30px; border-radius: 12px; width: 380px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); display: flex; flex-direction: column; }
-        h2 { color: #fff; margin-bottom: 20px; text-align: center; }
-        label { font-size: 11px; font-weight: bold; color: #b5bac1; display: block; margin-top: 12px; }
+        .login-wrapper { display: flex; gap: 20px; align-items: stretch; flex-wrap: wrap; justify-content: center; }
+        .card { background: #2b2d31; padding: 25px; border-radius: 12px; width: 380px; max-width: 95vw; box-shadow: 0 8px 24px rgba(0,0,0,0.3); display: flex; flex-direction: column; }
+        h2 { color: #fff; margin-bottom: 15px; text-align: center; }
+        label { font-size: 11px; font-weight: bold; color: #b5bac1; display: block; margin-top: 10px; }
         input { width: 100%; padding: 10px; margin-top: 5px; background: #111214; border: none; border-radius: 6px; color: #fff; font-size: 14px; }
-        button { width: 100%; padding: 12px; background: #5865f2; color: white; border: none; border-radius: 6px; font-weight: bold; margin-top: 20px; cursor: pointer; transition: background 0.2s; }
+        button { width: 100%; padding: 12px; background: #5865f2; color: white; border: none; border-radius: 6px; font-weight: bold; margin-top: 15px; cursor: pointer; transition: background 0.2s; }
         button:hover { background: #4752c4; }
 
-        .rooms-list { flex: 1; overflow-y: auto; max-height: 260px; display: flex; flex-direction: column; gap: 8px; }
-        .room-item { background: #1e1f22; padding: 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; border: 1px solid transparent; transition: 0.15s; }
+        .rooms-list { flex: 1; overflow-y: auto; max-height: 220px; display: flex; flex-direction: column; gap: 8px; }
+        .room-item { background: #1e1f22; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; border: 1px solid transparent; transition: 0.15s; }
         .room-item:hover { border-color: #5865f2; background: #232428; }
         .room-name { font-weight: bold; color: #fff; font-size: 14px; }
         .room-meta { font-size: 12px; color: #949ba4; }
-        .empty-rooms { color: #949ba4; font-size: 13px; text-align: center; margin-top: 40px; }
+        .empty-rooms { color: #949ba4; font-size: 13px; text-align: center; margin-top: 30px; }
         
         #chat-screen { display: none; width: 95vw; height: 92vh; max-width: 1300px; max-height: 800px; flex-direction: row; border-radius: 12px; overflow: hidden; background: #313338; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
         
         /* Left Pane: Game Arena */
         .game-arena { width: 0px; background: #2b2d31; border-right: 1px solid #1f2023; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 0.3s ease; overflow: hidden; padding: 0; }
-        .game-arena.active { width: 350px; padding: 15px; }
-        .game-title { color: #fff; margin-bottom: 10px; font-size: 16px; font-weight: bold; }
+        .game-arena.active { width: 340px; padding: 12px; }
+        .game-title { color: #fff; margin-bottom: 8px; font-size: 16px; font-weight: bold; }
         
         /* Tic Tac Toe Grid */
         .ttt-board { display: none; grid-template-columns: repeat(3, 80px); grid-template-rows: repeat(3, 80px); gap: 6px; background: #1e1f22; padding: 8px; border-radius: 8px; }
@@ -46,16 +46,16 @@ HTML_PAGE = """<!DOCTYPE html>
         .ttt-cell:hover { background: #383a40; }
 
         /* Connect Four Grid */
-        .c4-board { display: none; grid-template-columns: repeat(7, 38px); grid-template-rows: repeat(6, 38px); gap: 4px; background: #1e1f22; padding: 6px; border-radius: 8px; }
-        .c4-cell { width: 38px; height: 38px; background: #313338; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; overflow: hidden; position: relative; }
+        .c4-board { display: none; grid-template-columns: repeat(7, 36px); grid-template-rows: repeat(6, 36px); gap: 4px; background: #1e1f22; padding: 6px; border-radius: 8px; }
+        .c4-cell { width: 36px; height: 36px; background: #313338; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; overflow: hidden; position: relative; }
         .c4-cell:hover { background: #383a40; }
-        .c4-piece { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; color: white; }
+        .c4-piece { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: white; }
 
-        .game-status { margin-top: 10px; font-size: 13px; color: #b5bac1; text-align: center; }
+        .game-status { margin-top: 8px; font-size: 12px; color: #b5bac1; text-align: center; }
 
         .main-chat { flex: 1; display: flex; flex-direction: column; min-width: 250px; }
-        .chat-header { padding: 15px 20px; background: #313338; border-bottom: 1px solid #1f2023; font-weight: bold; color: #fff; display: flex; justify-content: space-between; align-items: center; }
-        .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .chat-header { padding: 12px 15px; background: #313338; border-bottom: 1px solid #1f2023; font-weight: bold; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+        .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
         .message { background: #2b2d31; padding: 10px 14px; border-radius: 8px; max-width: 80%; word-break: break-word; }
         .message.me { background: #5865f2; align-self: flex-end; }
         .message.system { background: #232428; color: #949ba4; align-self: center; font-size: 13px; text-align: center; max-width: 90%; }
@@ -63,31 +63,37 @@ HTML_PAGE = """<!DOCTYPE html>
         .join-game-btn { background: #248046; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-weight: bold; margin-top: 8px; cursor: pointer; display: inline-block; }
         .join-game-btn:hover { background: #1a6335; }
         
-        .typing-indicator { height: 22px; padding: 0 20px; font-size: 12px; font-style: italic; color: #b5bac1; display: flex; align-items: center; }
+        .typing-indicator { height: 20px; padding: 0 15px; font-size: 11px; font-style: italic; color: #b5bac1; display: flex; align-items: center; }
         
-        .message-input-area { padding: 10px 20px 15px 20px; display: flex; gap: 10px; background: #313338; }
+        .message-input-area { padding: 10px 15px; display: flex; gap: 8px; background: #313338; }
         .message-input-area input { margin-top: 0; background: #383A40; flex: 1; }
         
-        .sidebar { width: 220px; background: #2b2d31; padding: 15px; border-left: 1px solid #1f2023; display: flex; flex-direction: column; gap: 15px; }
-        .sidebar h3 { font-size: 12px; color: #949ba4; margin-bottom: 5px; }
+        .sidebar { width: 220px; background: #2b2d31; padding: 15px; border-left: 1px solid #1f2023; display: flex; flex-direction: column; gap: 12px; }
+        .sidebar h3 { font-size: 11px; color: #949ba4; margin-bottom: 4px; }
         .user-item { padding: 4px 0; color: #dbdee1; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
         .kick-btn { background: #da373c; color: white; border: none; padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer; display: none; }
         .kick-btn:hover { background: #a12828; }
         
         .game-panel { background: #1e1f22; padding: 10px; border-radius: 8px; margin-top: auto; }
-        .game-select { width: 100%; padding: 6px; background: #383A40; border: none; border-radius: 6px; color: #fff; font-size: 12px; margin-top: 6px; }
-        .game-btn { background: #248046; margin-top: 8px; padding: 6px; font-size: 12px; }
+        .game-select { width: 100%; padding: 6px; background: #383A40; border: none; border-radius: 6px; color: #fff; font-size: 12px; margin-top: 4px; }
+        .game-btn { background: #248046; margin-top: 6px; padding: 6px; font-size: 12px; }
         .game-btn:hover { background: #1a6335; }
         .close-game-btn { background: #da373c; margin-top: 6px; padding: 6px; font-size: 12px; display: none; }
         .close-game-btn:hover { background: #a12828; }
 
-        .leave-btn { background: #da373c; padding: 6px 12px; width: auto; margin-top: 0; }
+        .leave-btn { background: #da373c; padding: 5px 10px; width: auto; margin-top: 0; font-size: 12px; }
         .leave-btn:hover { background: #a12828; }
 
         @media (max-width: 768px) {
-            #chat-screen { flex-direction: column; height: 98vh; width: 98vw; }
-            .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: space-between; padding: 10px; }
-            .game-arena.active { width: 100%; max-height: 280px; }
+            body { align-items: flex-start; padding: 5px; }
+            .login-wrapper { flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+            .card { width: 100%; max-width: 100%; padding: 15px; }
+            #chat-screen { flex-direction: column; height: 96vh; width: 98vw; }
+            .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: space-between; padding: 8px 12px; gap: 6px; max-height: 110px; overflow-y: auto; }
+            .sidebar > div { flex: 1; min-width: 120px; }
+            .game-panel { margin-top: 0; min-width: 140px; }
+            .game-arena.active { width: 100%; max-height: 240px; padding: 8px; }
+            .c4-board { transform: scale(0.85); transform-origin: top center; margin-bottom: -15px; }
         }
     </style>
 </head>
@@ -135,7 +141,7 @@ HTML_PAGE = """<!DOCTYPE html>
             <div class="c4-board" id="c4-board"></div>
 
             <div class="game-status" id="game-status">Game starting...</div>
-            <button class="game-btn" onclick="resetGame()" style="margin-top: 10px; width: auto; padding: 4px 10px;">Reset Board</button>
+            <button class="game-btn" onclick="resetGame()" style="margin-top: 6px; width: auto; padding: 4px 10px;">Reset Board</button>
         </div>
 
         <div class="main-chat">
@@ -166,7 +172,7 @@ HTML_PAGE = """<!DOCTYPE html>
                     <button class="game-btn" onclick="launchGame()">Launch Game</button>
                 </div>
                 <button class="close-game-btn" id="close-game-btn" onclick="closeGame()">Close Game</button>
-                <div id="player-waiting" style="font-size: 11px; color: #949ba4; margin-top: 4px;">Waiting for Room Op to launch.</div>
+                <div id="player-waiting" style="font-size: 10px; color: #949ba4; margin-top: 3px;">Waiting for Op.</div>
             </div>
         </div>
     </div>
