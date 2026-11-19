@@ -1,6 +1,7 @@
-import asyncio
+mport asyncio
 import json
 import os
+from http import HTTPStatus
 import websockets
 
 # Store rooms: { "ROOM_CODE": { "password": "...", "clients": { ws: username } } }
@@ -153,24 +154,6 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>
 """
 
-async def http_handler(reader, writer):
-    await reader.readline()
-    while True:
-        line = await reader.readline()
-        if line == b'\r\n' or not line:
-            break
-            
-    response = HTML_PAGE.encode('utf-8')
-    header = (
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/html; charset=utf-8\r\n"
-        f"Content-Length: {len(response)}\r\n"
-        "Connection: close\r\n\r\n"
-    )
-    writer.write(header.encode('utf-8') + response)
-    await writer.drain()
-    writer.close()
-
 async def chat_handler(websocket):
     current_room = None
     current_username = None
@@ -228,16 +211,19 @@ async def broadcast_user_list(room):
         payload = json.dumps({"type": "user_list", "users": users})
         await asyncio.gather(*[ws.send(payload) for ws in rooms[room]["clients"]])
 
+# Intercept regular HTTP requests and return our HTML chat page
+async def process_request(connection, request):
+    return connection.respond(
+        HTTPStatus.OK,
+        HTML_PAGE.encode("utf-8"),
+        headers={"Content-Type": "text/html; charset=utf-8"}
+    )
+
 async def main():
     port = int(os.environ.get("PORT", 8080))
-    
-    # Start HTTP server to serve the webpage, and WebSocket server on the same port
-    server = await websockets.serve(chat_handler, "0.0.0.0", port)
-    
-    # For local convenience, let's also spin up a quick secondary listener for standard web requests if testing locally, 
-    # or rely on Render's single-port routing.
-    print(f"Chat server running on port {port}...")
-    await asyncio.Future()
+    async with websockets.serve(chat_handler, "0.0.0.0", port, process_request=process_request):
+        print(f"Chat server running on port {port}...")
+        await asyncio.Future()
 
 if __name__ == "__main__":
     asyncio.run(main())
