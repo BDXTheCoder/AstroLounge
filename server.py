@@ -52,7 +52,6 @@ HTML_PAGE = """<!DOCTYPE html>
         .message.me { background: #5865f2; align-self: flex-end; }
         .message.system { background: #232428; color: #949ba4; align-self: center; font-size: 13px; text-align: center; max-width: 90%; }
         
-        /* Chat Join Game Button */
         .join-game-btn { background: #248046; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-weight: bold; margin-top: 8px; cursor: pointer; display: inline-block; }
         .join-game-btn:hover { background: #1a6335; }
         
@@ -164,10 +163,10 @@ HTML_PAGE = """<!DOCTYPE html>
         let isTyping = false;
         let typingUsers = new Set();
         
-        // Tic Tac Toe State
         let tttBoard = ["", "", "", "", "", "", "", "", ""];
         let tttTurn = "X";
         let tttActive = false;
+        let tttWinner = null;
         let tttPlayers = { X: null, O: null };
 
         function connectWebSocket() {
@@ -252,6 +251,7 @@ HTML_PAGE = """<!DOCTYPE html>
                     tttBoard = data.board;
                     tttTurn = data.turn;
                     tttActive = data.active;
+                    tttWinner = data.winner;
                     tttPlayers = data.players;
                     
                     if (tttActive) {
@@ -341,7 +341,7 @@ HTML_PAGE = """<!DOCTYPE html>
         }
 
         function makeMove(index) {
-            if (!tttActive) return;
+            if (!tttActive || tttWinner) return;
             if (tttBoard[index] !== "") return;
             
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -363,11 +363,20 @@ HTML_PAGE = """<!DOCTYPE html>
             }
             const status = document.getElementById("ttt-status");
             let roleText = "";
-            if (tttPlayers.X === username) roleText = " (You are Player X)";
-            else if (tttPlayers.O === username) roleText = " (You are Player O)";
+            if (tttPlayers.X === username) roleText = " (You are X)";
+            else if (tttPlayers.O === username) roleText = " (You are O)";
             else roleText = " (Spectating)";
 
-            status.innerText = `Turn: ${tttTurn}${roleText}`;
+            if (tttWinner) {
+                if (tttWinner === "Tie") {
+                    status.innerText = `It's a Tie! 🤝`;
+                } else {
+                    const winnerName = tttPlayers[tttWinner];
+                    status.innerText = `Winner: ${winnerName} (${tttWinner})! 🎉`;
+                }
+            } else {
+                status.innerText = `Turn: ${tttTurn} (${tttPlayers[tttTurn] || 'Waiting...'})${roleText}`;
+            }
         }
 
         function handleTyping() {
@@ -430,6 +439,19 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>
 """
 
+def check_winner(board):
+    wins = [
+        (0,1,2), (3,4,5), (6,7,8), # rows
+        (0,3,6), (1,4,7), (2,5,8), # cols
+        (0,4,8), (2,4,6)  # diagonals
+    ]
+    for a, b, c in wins:
+        if board[a] and board[a] == board[b] == board[c]:
+            return board[a] # Returns 'X' or 'O'
+    if "" not in board:
+        return "Tie"
+    return None
+
 async def chat_handler(websocket, path):
     all_connections.add(websocket)
     current_room = None
@@ -460,6 +482,7 @@ async def chat_handler(websocket, path):
                             "active": False,
                             "board": ["", "", "", "", "", "", "", "", ""],
                             "turn": "X",
+                            "winner": None,
                             "players": {"X": None, "O": None}
                         }
                     }
@@ -476,6 +499,7 @@ async def chat_handler(websocket, path):
                     "type": "game_state", 
                     "board": g["board"], 
                     "turn": g["turn"], 
+                    "winner": g["winner"],
                     "active": g["active"],
                     "players": g["players"]
                 }))
@@ -506,9 +530,9 @@ async def chat_handler(websocket, path):
                         g["active"] = True
                         g["board"] = ["", "", "", "", "", "", "", "", ""]
                         g["turn"] = "X"
+                        g["winner"] = None
                         g["players"] = {"X": None, "O": None}
                         
-                        # Broadcast game launch state and chat message with Join button
                         await broadcast_game_state(current_room)
                         launch_payload = json.dumps({"type": "game_launch"})
                         await asyncio.gather(*[ws.send(launch_payload) for ws in rooms[current_room]["clients"]])
@@ -540,11 +564,21 @@ async def chat_handler(websocket, path):
                     g = rooms[current_room]["game"]
                     idx = data.get("index")
                     
-                    # Verify current player turn matches the client
                     current_player_name = g["players"].get(g["turn"])
-                    if g["active"] and current_player_name == current_username and 0 <= idx < 9 and g["board"][idx] == "":
+                    if g["active"] and not g["winner"] and current_player_name == current_username and 0 <= idx < 9 and g["board"][idx] == "":
                         g["board"][idx] = g["turn"]
-                        g["turn"] = "O" if g["turn"] == "X" else "X"
+                        
+                        winner = check_winner(g["board"])
+                        if winner:
+                            g["winner"] = winner
+                            if winner == "Tie":
+                                await broadcast_message(current_room, "System", "🤝 Tic-Tac-Toe ended in a Tie!")
+                            else:
+                                winner_name = g["players"][winner]
+                                await broadcast_message(current_room, "System", f"🎉 {winner_name} ({winner}) won Tic-Tac-Toe!")
+                        else:
+                            g["turn"] = "O" if g["turn"] == "X" else "X"
+                            
                         await broadcast_game_state(current_room)
 
             elif action == "ttt_reset":
@@ -553,6 +587,7 @@ async def chat_handler(websocket, path):
                         g = rooms[current_room]["game"]
                         g["board"] = ["", "", "", "", "", "", "", "", ""]
                         g["turn"] = "X"
+                        g["winner"] = None
                         await broadcast_game_state(current_room)
 
             elif action == "kick":
@@ -579,7 +614,6 @@ async def chat_handler(websocket, path):
                     if rooms[current_room]["op"] == websocket:
                         rooms[current_room]["op"] = list(rooms[current_room]["clients"].keys())[0]
                     
-                    # Clear player slots if they leave
                     g = rooms[current_room]["game"]
                     if g["players"]["X"] == current_username: g["players"]["X"] = None
                     if g["players"]["O"] == current_username: g["players"]["O"] = None
@@ -607,6 +641,7 @@ async def broadcast_game_state(room):
             "type": "game_state",
             "board": g["board"],
             "turn": g["turn"],
+            "winner": g["winner"],
             "active": g["active"],
             "players": g["players"]
         })
