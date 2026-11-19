@@ -4,21 +4,19 @@ import os
 from http import HTTPStatus
 import websockets
 
-# Store rooms: { "room_code": { "password": "...", "clients": { ws: username } } }
+# Store rooms: { "room_code": { "password": "...", "clients": { ws: username }, "game": None } }
 rooms = {}
-# Track all connected clients (even those still on the login screen) for room list updates
 all_connections = set()
 
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Nexus Chat</title>
+    <title>Nexus Chat & Arcade</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
         body { background-color: #1e1f22; color: #dbdee1; display: flex; height: 100vh; justify-content: center; align-items: center; }
         
-        /* Login & Lobby Layout */
         .login-wrapper { display: flex; gap: 20px; align-items: stretch; }
         .card { background: #2b2d31; padding: 30px; border-radius: 12px; width: 380px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); display: flex; flex-direction: column; }
         h2 { color: #fff; margin-bottom: 20px; text-align: center; }
@@ -27,7 +25,6 @@ HTML_PAGE = """<!DOCTYPE html>
         button { width: 100%; padding: 12px; background: #5865f2; color: white; border: none; border-radius: 6px; font-weight: bold; margin-top: 20px; cursor: pointer; transition: background 0.2s; }
         button:hover { background: #4752c4; }
 
-        /* Active Rooms Box */
         .rooms-list { flex: 1; overflow-y: auto; max-height: 260px; display: flex; flex-direction: column; gap: 8px; }
         .room-item { background: #1e1f22; padding: 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; border: 1px solid transparent; transition: 0.15s; }
         .room-item:hover { border-color: #5865f2; background: #232428; }
@@ -35,22 +32,42 @@ HTML_PAGE = """<!DOCTYPE html>
         .room-meta { font-size: 12px; color: #949ba4; }
         .empty-rooms { color: #949ba4; font-size: 13px; text-align: center; margin-top: 40px; }
         
-        /* Chat Screen */
-        #chat-screen { display: none; width: 90vw; height: 90vh; max-width: 1000px; max-height: 700px; flex-direction: row; border-radius: 12px; overflow: hidden; background: #313338; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
-        .main-chat { flex: 1; display: flex; flex-direction: column; }
+        #chat-screen { display: none; width: 95vw; height: 92vh; max-width: 1300px; max-height: 800px; flex-direction: row; border-radius: 12px; overflow: hidden; background: #313338; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+        
+        /* Left Pane: Game Arena (hidden by default) */
+        .game-arena { width: 0px; background: #2b2d31; border-right: 1px solid #1f2023; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 0.3s ease; overflow: hidden; padding: 0; }
+        .game-arena.active { width: 450px; padding: 20px; }
+        .game-title { color: #fff; margin-bottom: 15px; font-size: 18px; font-weight: bold; }
+        
+        /* Tic Tac Toe Grid */
+        .ttt-board { display: grid; grid-template-columns: repeat(3, 100px); grid-template-rows: repeat(3, 100px); gap: 8px; background: #1e1f22; padding: 8px; border-radius: 8px; }
+        .ttt-cell { background: #313338; border: none; border-radius: 6px; font-size: 40px; font-weight: bold; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+        .ttt-cell:hover { background: #383a40; }
+        .ttt-status { margin-top: 15px; font-size: 14px; color: #b5bac1; text-align: center; }
+
+        .main-chat { flex: 1; display: flex; flex-direction: column; min-width: 350px; }
         .chat-header { padding: 15px 20px; background: #313338; border-bottom: 1px solid #1f2023; font-weight: bold; color: #fff; display: flex; justify-content: space-between; align-items: center; }
         .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
         .message { background: #2b2d31; padding: 10px 14px; border-radius: 8px; max-width: 70%; word-break: break-word; }
         .message.me { background: #5865f2; align-self: flex-end; }
+        .message.system { background: #232428; color: #949ba4; align-self: center; font-size: 13px; text-align: center; max-width: 90%; }
         
-        /* Typing Indicator */
         .typing-indicator { height: 22px; padding: 0 20px; font-size: 12px; font-style: italic; color: #b5bac1; display: flex; align-items: center; }
         
         .message-input-area { padding: 10px 20px 15px 20px; display: flex; gap: 10px; background: #313338; }
         .message-input-area input { margin-top: 0; background: #383A40; flex: 1; }
-        .sidebar { width: 220px; background: #2b2d31; padding: 20px; border-left: 1px solid #1f2023; }
-        .sidebar h3 { font-size: 12px; color: #949ba4; margin-bottom: 10px; }
-        .user-item { padding: 6px 0; color: #dbdee1; font-size: 14px; }
+        
+        .sidebar { width: 250px; background: #2b2d31; padding: 20px; border-left: 1px solid #1f2023; display: flex; flex-direction: column; gap: 15px; }
+        .sidebar h3 { font-size: 12px; color: #949ba4; margin-bottom: 5px; }
+        .user-item { padding: 6px 0; color: #dbdee1; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+        .kick-btn { background: #da373c; color: white; border: none; padding: 3px 6px; border-radius: 4px; font-size: 11px; cursor: pointer; display: none; }
+        .kick-btn:hover { background: #a12828; }
+        
+        .game-panel { background: #1e1f22; padding: 12px; border-radius: 8px; margin-top: auto; }
+        .game-select { width: 100%; padding: 8px; background: #383A40; border: none; border-radius: 6px; color: #fff; font-size: 13px; margin-top: 8px; }
+        .game-btn { background: #248046; margin-top: 10px; padding: 8px; font-size: 13px; }
+        .game-btn:hover { background: #1a6335; }
+
         .leave-btn { background: #da373c; padding: 6px 12px; width: auto; margin-top: 0; }
         .leave-btn:hover { background: #a12828; }
 
@@ -62,7 +79,6 @@ HTML_PAGE = """<!DOCTYPE html>
 </head>
 <body>
 
-    <!-- Login & Active Rooms Screen -->
     <div id="login-screen" class="login-wrapper">
         <div class="card">
             <h2>Nexus Chat</h2>
@@ -83,8 +99,25 @@ HTML_PAGE = """<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Chat Screen -->
     <div id="chat-screen">
+        <!-- Left Pane: Game Arena -->
+        <div class="game-arena" id="game-arena">
+            <div class="game-title" id="game-arena-title">Tic-Tac-Toe</div>
+            <div class="ttt-board" id="ttt-board">
+                <button class="ttt-cell" onclick="makeMove(0)"></button>
+                <button class="ttt-cell" onclick="makeMove(1)"></button>
+                <button class="ttt-cell" onclick="makeMove(2)"></button>
+                <button class="ttt-cell" onclick="makeMove(3)"></button>
+                <button class="ttt-cell" onclick="makeMove(4)"></button>
+                <button class="ttt-cell" onclick="makeMove(5)"></button>
+                <button class="ttt-cell" onclick="makeMove(6)"></button>
+                <button class="ttt-cell" onclick="makeMove(7)"></button>
+                <button class="ttt-cell" onclick="makeMove(8)"></button>
+            </div>
+            <div class="ttt-status" id="ttt-status">Game starting...</div>
+            <button class="game-btn" onclick="resetGame()" style="margin-top: 15px; width: auto; padding: 6px 12px;">Reset Board</button>
+        </div>
+
         <div class="main-chat">
             <div class="chat-header">
                 <span id="room-title"># room</span>
@@ -97,18 +130,37 @@ HTML_PAGE = """<!DOCTYPE html>
                 <button style="width: 80px; margin-top:0;" onclick="sendMessage()">Send</button>
             </div>
         </div>
+        
         <div class="sidebar">
-            <h3>ONLINE MEMBERS</h3>
-            <div id="user-list"></div>
+            <div>
+                <h3>ONLINE MEMBERS</h3>
+                <div id="user-list"></div>
+            </div>
+            <div class="game-panel" id="game-panel" style="display:none;">
+                <h3>ARCADE</h3>
+                <div id="op-controls" style="display:none;">
+                    <select id="game-select" class="game-select">
+                        <option value="tictactoe">Tic-Tac-Toe</option>
+                    </select>
+                    <button class="game-btn" onclick="launchGame()">Launch Game</button>
+                </div>
+                <div id="player-waiting" style="font-size: 12px; color: #949ba4; margin-top: 5px;">Waiting for Room Op to launch a game.</div>
+            </div>
         </div>
     </div>
 
     <script>
         let ws;
         let username;
+        let isOp = false;
         let typingTimeout;
         let isTyping = false;
         let typingUsers = new Set();
+        
+        // Tic Tac Toe State
+        let tttBoard = ["", "", "", "", "", "", "", "", ""];
+        let tttTurn = "X";
+        let tttActive = false;
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -122,10 +174,23 @@ HTML_PAGE = """<!DOCTYPE html>
                     return;
                 }
 
+                if (data.status === "kicked") {
+                    alert("You have been kicked from the room by the operator.");
+                    location.reload();
+                    return;
+                }
+
                 if (data.status === "joined") {
                     document.getElementById("login-screen").style.display = "none";
                     document.getElementById("chat-screen").style.display = "flex";
                     document.getElementById("room-title").innerText = "# " + data.room;
+                    isOp = data.is_op;
+                    
+                    document.getElementById("game-panel").style.display = "block";
+                    if (isOp) {
+                        document.getElementById("op-controls").style.display = "block";
+                        document.getElementById("player-waiting").style.display = "none";
+                    }
                 }
 
                 if (data.type === "room_list") {
@@ -135,8 +200,15 @@ HTML_PAGE = """<!DOCTYPE html>
                 if (data.type === "message") {
                     const msgBox = document.getElementById("messages");
                     const div = document.createElement("div");
-                    div.className = "message" + (data.sender === username ? " me" : "");
-                    div.innerHTML = `<strong>${data.sender}:</strong> ${data.text}`;
+                    
+                    if (data.sender === "System") {
+                        div.className = "message system";
+                        div.innerText = data.text;
+                    } else {
+                        div.className = "message" + (data.sender === username ? " me" : "");
+                        div.innerHTML = `<strong>${data.sender}:</strong> ${data.text}`;
+                    }
+                    
                     msgBox.appendChild(div);
                     msgBox.scrollTop = msgBox.scrollHeight;
                 }
@@ -144,12 +216,36 @@ HTML_PAGE = """<!DOCTYPE html>
                 if (data.type === "user_list") {
                     const userList = document.getElementById("user-list");
                     userList.innerHTML = "";
-                    data.users.forEach(user => {
+                    data.users.forEach(u => {
                         const uDiv = document.createElement("div");
                         uDiv.className = "user-item";
-                        uDiv.innerText = "🟢 " + user;
+                        
+                        const crown = u.is_op ? " 👑" : "";
+                        uDiv.innerHTML = `<span>🟢 ${u.name}${crown}</span>`;
+
+                        if (isOp && u.name !== username) {
+                            const kickBtn = document.createElement("button");
+                            kickBtn.className = "kick-btn";
+                            kickBtn.innerText = "Kick";
+                            kickBtn.onclick = () => kickUser(u.name);
+                            uDiv.appendChild(kickBtn);
+                        }
                         userList.appendChild(uDiv);
                     });
+                }
+
+                if (data.type === "game_launch") {
+                    document.getElementById("game-arena").classList.add("active");
+                    tttActive = true;
+                    updateTTTUI();
+                }
+
+                if (data.type === "game_state") {
+                    tttBoard = data.board;
+                    tttTurn = data.turn;
+                    tttActive = data.active;
+                    document.getElementById("game-arena").classList.add("active");
+                    updateTTTUI();
                 }
 
                 if (data.type === "typing") {
@@ -205,6 +301,44 @@ HTML_PAGE = """<!DOCTYPE html>
             }
         }
 
+        function kickUser(targetName) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "kick", target: targetName }));
+            }
+        }
+
+        function launchGame() {
+            const gameType = document.getElementById("game-select").value;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "launch_game", game: gameType }));
+            }
+        }
+
+        function makeMove(index) {
+            if (!tttActive) return;
+            if (tttBoard[index] !== "") return;
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "ttt_move", index: index }));
+            }
+        }
+
+        function resetGame() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "ttt_reset" }));
+            }
+        }
+
+        function updateTTTUI() {
+            const cells = document.getElementsByClassName("ttt-cell");
+            for (let i = 0; i < cells.length; i++) {
+                cells[i].innerText = tttBoard[i];
+                cells[i].style.color = tttBoard[i] === "X" ? "#5865f2" : "#ed4245";
+            }
+            const status = document.getElementById("ttt-status");
+            status.innerText = `Current Turn: Player ${tttTurn}`;
+        }
+
         function handleTyping() {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -227,8 +361,6 @@ HTML_PAGE = """<!DOCTYPE html>
                 indicator.innerText = "";
             } else if (users.length === 1) {
                 indicator.innerText = `${users[0]} is typing...`;
-            } else if (users.length === 2) {
-                indicator.innerText = `${users[0]} and ${users[1]} are typing...`;
             } else {
                 indicator.innerText = "Several people are typing...";
             }
@@ -240,7 +372,6 @@ HTML_PAGE = """<!DOCTYPE html>
             if (text && ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ action: "message", text: text }));
                 
-                // Stop typing indicator immediately upon sending
                 clearTimeout(typingTimeout);
                 if (isTyping) {
                     isTyping = false;
@@ -262,7 +393,6 @@ HTML_PAGE = """<!DOCTYPE html>
             if (e.key === "Enter") sendMessage();
         }
 
-        // Connect immediately on page load to fetch active rooms
         connectWebSocket();
     </script>
 </body>
@@ -274,7 +404,6 @@ async def chat_handler(websocket, path):
     current_room = None
     current_username = None
 
-    # Send current active rooms immediately upon page load
     await send_room_list(websocket)
 
     try:
@@ -292,13 +421,29 @@ async def chat_handler(websocket, path):
                         await websocket.send(json.dumps({"status": "error", "message": "Incorrect room password!"}))
                         continue
                 else:
-                    rooms[room] = {"password": password, "clients": {}}
+                    rooms[room] = {
+                        "password": password, 
+                        "clients": {}, 
+                        "op": websocket, 
+                        "game": {
+                            "active": False,
+                            "board": ["", "", "", "", "", "", "", "", ""],
+                            "turn": "X"
+                        }
+                    }
                 
                 current_room = room
                 current_username = username
                 rooms[room]["clients"][websocket] = username
                 
-                await websocket.send(json.dumps({"status": "joined", "room": room}))
+                is_op = (rooms[room]["op"] == websocket)
+                await websocket.send(json.dumps({"status": "joined", "room": room, "is_op": is_op}))
+                
+                # If game is already active in room, sync new user
+                g = rooms[room]["game"]
+                if g["active"]:
+                    await websocket.send(json.dumps({"type": "game_state", "board": g["board"], "turn": g["turn"], "active": True}))
+
                 await broadcast_user_list(room)
                 await broadcast_room_list()
                 await broadcast_message(room, "System", f"{username} joined the room.", exclude=websocket)
@@ -317,6 +462,47 @@ async def chat_handler(websocket, path):
                     targets = [ws for ws in rooms[current_room]["clients"] if ws != websocket]
                     if targets:
                         await asyncio.gather(*[ws.send(payload) for ws in targets])
+
+            elif action == "launch_game":
+                if current_room and current_room in rooms:
+                    if rooms[current_room]["op"] == websocket:
+                        rooms[current_room]["game"]["active"] = True
+                        payload = json.dumps({"type": "game_launch", "game": data.get("game")})
+                        await asyncio.gather(*[ws.send(payload) for ws in rooms[current_room]["clients"]])
+                        await broadcast_message(current_room, "System", "🎮 Room Operator launched Tic-Tac-Toe!")
+
+            elif action == "ttt_move":
+                if current_room and current_room in rooms:
+                    g = rooms[current_room]["game"]
+                    idx = data.get("index")
+                    if g["active"] and 0 <= idx < 9 and g["board"][idx] == "":
+                        g["board"][idx] = g["turn"]
+                        g["turn"] = "O" if g["turn"] == "X" else "X"
+                        
+                        payload = json.dumps({"type": "game_state", "board": g["board"], "turn": g["turn"], "active": True})
+                        await asyncio.gather(*[ws.send(payload) for ws in rooms[current_room]["clients"]])
+
+            elif action == "ttt_reset":
+                if current_room and current_room in rooms:
+                    if rooms[current_room]["op"] == websocket:
+                        g = rooms[current_room]["game"]
+                        g["board"] = ["", "", "", "", "", "", "", "", ""]
+                        g["turn"] = "X"
+                        payload = json.dumps({"type": "game_state", "board": g["board"], "turn": g["turn"], "active": True})
+                        await asyncio.gather(*[ws.send(payload) for ws in rooms[current_room]["clients"]])
+
+            elif action == "kick":
+                if current_room and current_room in rooms:
+                    if rooms[current_room]["op"] == websocket:
+                        target_name = data.get("target")
+                        target_ws = None
+                        for ws, uname in rooms[current_room]["clients"].items():
+                            if uname == target_name:
+                                target_ws = ws
+                                break
+                        if target_ws:
+                            await target_ws.send(json.dumps({"status": "kicked"}))
+                            await target_ws.close()
                     
     except websockets.exceptions.ConnectionClosed:
         pass
@@ -326,8 +512,10 @@ async def chat_handler(websocket, path):
             if websocket in rooms[current_room]["clients"]:
                 del rooms[current_room]["clients"][websocket]
                 if rooms[current_room]["clients"]:
+                    if rooms[current_room]["op"] == websocket:
+                        rooms[current_room]["op"] = list(rooms[current_room]["clients"].keys())[0]
+                    
                     await broadcast_user_list(current_room)
-                    # Clear typing indicator if user disconnected while typing
                     clear_typing = json.dumps({"type": "typing", "sender": current_username, "is_typing": False})
                     await asyncio.gather(*[ws.send(clear_typing) for ws in rooms[current_room]["clients"]])
                     await broadcast_message(current_room, "System", f"{current_username} left the room.")
@@ -344,9 +532,13 @@ async def broadcast_message(room, sender, text, exclude=None):
 
 async def broadcast_user_list(room):
     if room in rooms:
-        users = list(rooms[room]["clients"].values())
+        room_info = rooms[room]
+        users = [
+            {"name": uname, "is_op": (ws == room_info["op"])}
+            for ws, uname in room_info["clients"].items()
+        ]
         payload = json.dumps({"type": "user_list", "users": users})
-        await asyncio.gather(*[ws.send(payload) for ws in rooms[room]["clients"]])
+        await asyncio.gather(*[ws.send(payload) for ws in room_info["clients"]])
 
 def get_room_list_payload():
     room_data = [
@@ -367,7 +559,6 @@ async def broadcast_room_list():
         payload = get_room_list_payload()
         await asyncio.gather(*[ws.send(payload) for ws in all_connections], return_exceptions=True)
 
-# Intercept regular HTTP requests and return our HTML chat page
 async def process_request(path, request_headers):
     if "Upgrade" in request_headers.get("Connection", ""):
         return None
@@ -380,7 +571,7 @@ async def process_request(path, request_headers):
 async def main():
     port = int(os.environ.get("PORT", 8080))
     async with websockets.serve(chat_handler, "0.0.0.0", port, process_request=process_request):
-        print(f"Chat server running on port {port}...")
+        print(f"Server running on port {port}...")
         await asyncio.Future()
 
 if __name__ == "__main__":
